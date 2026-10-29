@@ -66,6 +66,7 @@ export default function SearchBar({ onLocationSelect }: SearchBarProps) {
         !searchRef.current.contains(event.target as Node)
       ) {
         setLocations([]);
+        setHasSearched(false);
       }
     }
 
@@ -78,48 +79,85 @@ export default function SearchBar({ onLocationSelect }: SearchBarProps) {
 
   function handleQueryChange(value: string) {
     setQuery(value);
-
-    if (!value.trim()) {
-      setLocations([]);
-      setError("");
-      setHasSearched(false);
-    }
+    setLocations([]);
+    setHasSearched(false);
+    setError("");
+    setIsLoading(false);
   }
 
   return (
-    <div ref={searchRef} className="relative w-full max-w-md">
+    <div ref={searchRef} className="search-wrap">
+      <label className="sr-only" htmlFor="location-search">
+        Search for a city
+      </label>
+      <span className="search-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none">
+          <circle cx="10.8" cy="10.8" r="6.8" />
+          <path d="m16 16 4 4" />
+        </svg>
+      </span>
       <input
-        type="text"
+        id="location-search"
+        type="search"
+        role="combobox"
         value={query}
         onChange={(e) => handleQueryChange(e.target.value)}
         placeholder="Search for a city..."
-        className="w-full rounded-full border border-slate-200 bg-white px-5 py-3 text-sm outline-none transition focus:border-slate-400"
+        autoComplete="off"
+        aria-autocomplete="list"
+        aria-haspopup="listbox"
+        aria-expanded={locations.length > 0}
+        aria-controls="location-results"
+        className="search-input"
       />
 
       {isLoading && (
-        <div className="mt-2 text-sm text-slate-500">Searching...</div>
+        <div className="search-feedback" role="status">
+          Searching locations...
+        </div>
       )}
 
-      {error && <div className="mt-2 text-sm text-red-500">{error}</div>}
+      {error && (
+        <div className="search-feedback search-error" role="alert">
+          {error}
+        </div>
+      )}
 
       {locations.length > 0 && (
-        <div className="absolute left-0 right-0 top-14 z-10 rounded-2xl border border-slate-100 bg-white p-2 shadow-lg">
+        <div
+          className="search-results"
+          id="location-results"
+          role="listbox"
+          aria-label="Location suggestions"
+        >
           {locations.map((location) => (
             <button
               key={location.id}
+              type="button"
+              role="option"
+              aria-selected="false"
               onClick={() => {
                 onLocationSelect(location);
-                setQuery(location.name);
+                setQuery("");
                 setLocations([]);
+                setHasSearched(false);
+                setError("");
               }}
-              className="block w-full rounded-xl px-4 py-3 text-left hover:bg-slate-50"
+              className="search-result"
             >
-              <div className="font-medium">{location.name}</div>
-
-              <div className="text-sm text-slate-500">
-                {location.admin1 ? `${location.admin1}, ` : ""}
-                {location.country}
-              </div>
+              <span className="result-pin" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none">
+                  <path d="M19 10c0 5-7 11-7 11S5 15 5 10a7 7 0 1 1 14 0Z" />
+                  <circle cx="12" cy="10" r="2.2" />
+                </svg>
+              </span>
+              <span className="result-copy">
+                <span className="result-name">{location.name}</span>
+                <span className="result-region">
+                  {location.admin1 ? `${location.admin1}, ` : ""}
+                  {location.country}
+                </span>
+              </span>
             </button>
           ))}
         </div>
@@ -130,11 +168,11 @@ export default function SearchBar({ onLocationSelect }: SearchBarProps) {
         query.trim() &&
         locations.length === 0 &&
         !error && (
-          <div className="absolute left-0 right-0 top-14 rounded-2xl border border-slate-100 bg-white p-4 text-center shadow-lg">
-            <p className="text-sm font-medium text-slate-700">
+          <div className="search-results search-empty">
+            <p className="empty-title">
               No locations found
             </p>
-            <p className="mt-1 text-xs text-slate-500">
+            <p className="empty-caption">
               Try a different spelling or city name.
             </p>
           </div>

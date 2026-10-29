@@ -23,6 +23,39 @@ type Location = {
   admin1?: string;
 };
 
+function formatForecastTime(time: string) {
+  const [hours = "0", minutes = "00"] = time.slice(11, 16).split(":");
+  const hour = Number(hours);
+  const period = hour >= 12 ? "PM" : "AM";
+  return `${hour % 12 || 12}:${minutes} ${period}`;
+}
+
+function LoadingState() {
+  return (
+    <main className="weather-shell">
+      <div className="weather-container">
+        <div className="loading-header">
+          <div className="skeleton skeleton-logo" />
+          <div className="skeleton skeleton-search" />
+        </div>
+        <div className="loading-hero">
+          <div className="skeleton skeleton-line skeleton-short" />
+          <div className="skeleton skeleton-line skeleton-temperature" />
+          <div className="skeleton skeleton-line skeleton-medium" />
+        </div>
+        <div className="loading-cards">
+          {[1, 2, 3].map((item) => (
+            <div className="skeleton skeleton-card" key={item} />
+          ))}
+        </div>
+      </div>
+      <p className="sr-only" role="status">
+        Loading weather forecast
+      </p>
+    </main>
+  );
+}
+
 export default function WeatherApp() {
   const [location, setLocation] = useState<Location>({
     id: 1,
@@ -31,23 +64,76 @@ export default function WeatherApp() {
     longitude: 3.3792,
     country: "Nigeria",
   });
-
   const [weather, setWeather] = useState<WeatherResponse | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [retryCount, setRetryCount] = useState(0);
+
+  function selectLocation(selectedLocation: Location) {
+    setWeather(null);
+    setIsLoading(true);
+    setLocation(selectedLocation);
+  }
 
   useEffect(() => {
-    async function loadWeather() {
-      const data = await getWeather(location.latitude, location.longitude);
+    let isCurrentRequest = true;
 
-      setWeather(data);
+    async function loadWeather() {
+      setIsLoading(true);
+      setError("");
+
+      try {
+        const data = await getWeather(location.latitude, location.longitude);
+
+        if (isCurrentRequest) {
+          setWeather(data);
+        }
+      } catch {
+        if (isCurrentRequest) {
+          setWeather(null);
+          setError("We couldn’t load the forecast. Check your connection and try again.");
+        }
+      } finally {
+        if (isCurrentRequest) {
+          setIsLoading(false);
+        }
+      }
     }
 
     loadWeather();
-  }, [location]);
+
+    return () => {
+      isCurrentRequest = false;
+    };
+  }, [location, retryCount]);
+
+  if (isLoading) {
+    return <LoadingState />;
+  }
 
   if (!weather) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-white text-slate-900">
-        <p className="text-slate-500">Loading weather...</p>
+      <main className="weather-shell">
+        <div className="weather-container">
+          <header className="site-header">
+            <Link href="/" className="brand" aria-label="ATMO home">
+              <span className="brand-mark" aria-hidden="true">A</span>
+              <span>atmo</span>
+            </Link>
+            <SearchBar onLocationSelect={selectLocation} />
+          </header>
+          <section className="error-panel" role="alert">
+            <span className="error-icon" aria-hidden="true">!</span>
+            <h1>Weather is taking a rain check</h1>
+            <p>{error}</p>
+            <button
+              className="retry-button"
+              onClick={() => setRetryCount((count) => count + 1)}
+            >
+              Try again
+            </button>
+          </section>
+        </div>
       </main>
     );
   }
@@ -55,145 +141,158 @@ export default function WeatherApp() {
   const dailyForecast: DailyForecastItem[] = getDailyForecast(weather);
   const hourlyForecast: HourlyForecastItem[] = getHourlyForecast(weather);
   const currentHourIndex = hourlyForecast.findIndex(
-    (hour: HourlyForecastItem) =>
-      hour.time.slice(0, 13) === weather.current.time.slice(0, 13),
+    (hour) => hour.time.slice(0, 13) === weather.current.time.slice(0, 13),
   );
-
   const next12Hours =
     currentHourIndex >= 0
       ? hourlyForecast.slice(currentHourIndex, currentHourIndex + 12)
       : hourlyForecast.slice(0, 12);
   const weatherInfo = getWeatherInfo(weather.current.weather_code);
+  const weekLow = Math.min(...dailyForecast.map((day) => day.minTemperature));
+  const weekHigh = Math.max(...dailyForecast.map((day) => day.maxTemperature));
+  const weekTemperatureRange = Math.max(weekHigh - weekLow, 1);
 
   return (
-    <main className="min-h-screen bg-white text-slate-900">
-      <div className="mx-auto max-w-6xl px-6 py-8">
-        {/* Header */}
-        <header className="flex items-center justify-between">
-          <Link href="/" className="text-2xl font-bold tracking-tight">
-            ATMO
+    <main className="weather-shell">
+      <div className="weather-container">
+        <header className="site-header">
+          <Link href="/" className="brand" aria-label="ATMO home">
+            <span className="brand-mark" aria-hidden="true">A</span>
+            <span>atmo</span>
           </Link>
-
-          <SearchBar
-            onLocationSelect={(selectedLocation) =>
-              setLocation(selectedLocation)
-            }
-          />
+          <SearchBar onLocationSelect={selectLocation} />
         </header>
 
-        {/* Current Weather */}
-        <section className="mt-16">
-          <p className="text-sm text-slate-500">
-            {location.name}, {location.country}
-          </p>
-
-          <div className="mt-6 text-6xl">{weatherInfo.icon}</div>
-
-          <h2 className="mt-2 text-5xl font-semibold tracking-tight">
-            {Math.round(weather.current.temperature_2m)}°
-          </h2>
-
-          <p className="mt-2 text-lg text-slate-600">
-            {weatherInfo.description}
-          </p>
-        </section>
-
-        {/* Weather Details */}
-        <section className="mt-10 grid grid-cols-2 gap-4 md:grid-cols-4">
-          <div className="rounded-2xl bg-slate-50 p-5">
-            <p className="text-sm text-slate-500">Feels like</p>
-
-            <p className="mt-2 text-xl font-semibold">
-              {Math.round(weather.current.apparent_temperature)}°
+        <section className="current-weather" aria-labelledby="current-heading">
+          <div className="current-copy">
+            <p className="eyebrow">
+              <span className="live-dot" aria-hidden="true" />
+              Current conditions
+            </p>
+            <p className="location-name">
+              {location.name}
+              <span>{location.admin1 ? `${location.admin1}, ` : ""}{location.country}</span>
+            </p>
+            <h1 id="current-heading" className="current-temperature">
+              {Math.round(weather.current.temperature_2m)}
+              <span>°</span>
+            </h1>
+            <p className="current-description">{weatherInfo.description}</p>
+            <p className="feels-like">
+              Feels like {Math.round(weather.current.apparent_temperature)}°
             </p>
           </div>
-
-          <div className="rounded-2xl bg-slate-50 p-5">
-            <p className="text-sm text-slate-500">Humidity</p>
-
-            <p className="mt-2 text-xl font-semibold">
-              {weather.current.relative_humidity_2m}%
-            </p>
-          </div>
-
-          <div className="rounded-2xl bg-slate-50 p-5">
-            <p className="text-sm text-slate-500">Wind</p>
-
-            <p className="mt-2 text-xl font-semibold">
-              {weather.current.wind_speed_10m} km/h
-            </p>
+          <div className="current-art" aria-hidden="true">
+            <span className="weather-orbit orbit-one" />
+            <span className="weather-orbit orbit-two" />
+            <span className="hero-weather-icon">{weatherInfo.icon}</span>
           </div>
         </section>
 
-        {/* Hourly Forecast */}
-        <section className="mt-12">
-          <h3 className="text-sm font-semibold uppercase tracking-wider text-slate-500">
-            Hourly forecast
-          </h3>
+        <section className="weather-details" aria-label="Weather details">
+          <article className="detail-card">
+            <span className="detail-icon humidity-icon" aria-hidden="true">%</span>
+            <div>
+              <p>Humidity</p>
+              <strong>{weather.current.relative_humidity_2m}%</strong>
+            </div>
+          </article>
+          <article className="detail-card">
+            <span className="detail-icon wind-icon" aria-hidden="true">↗</span>
+            <div>
+              <p>Wind</p>
+              <strong>{Math.round(weather.current.wind_speed_10m)} <small>km/h</small></strong>
+            </div>
+          </article>
+          <article className="detail-card">
+            <span className="detail-icon feels-icon" aria-hidden="true">◉</span>
+            <div>
+              <p>Feels like</p>
+              <strong>{Math.round(weather.current.apparent_temperature)}°</strong>
+            </div>
+          </article>
+        </section>
 
-          <div className="mt-4 flex gap-3 overflow-x-auto pb-2">
-            {next12Hours.map((hour: HourlyForecastItem, index: number) => (
-              <div
-                key={hour.time}
-                className="min-w-20 rounded-2xl bg-slate-50 p-4 text-center"
-              >
-                <p
-                  className={`min-w-20 rounded-2xl p-4 text-center ${
-                    index === 0 ? "bg-slate-900 text-white" : "bg-slate-50"
-                  }`}
+        <section className="forecast-section" aria-labelledby="hourly-heading">
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">Plan your day</p>
+              <h2 id="hourly-heading">Hourly forecast</h2>
+            </div>
+            <span className="section-note">Next 12 hours</span>
+          </div>
+          <div className="hourly-list">
+            {next12Hours.map((hour, index) => {
+              const info = getWeatherInfo(hour.weatherCode);
+
+              return (
+                <article
+                  key={hour.time}
+                  className={`hour-card${index === 0 ? " hour-card-current" : ""}`}
+                  aria-label={`${index === 0 ? "Now" : formatForecastTime(hour.time)}, ${Math.round(hour.temperature)} degrees, ${info.description}`}
                 >
-                  {index === 0
-                    ? "Now"
-                    : new Date(hour.time).toLocaleTimeString("en-US", {
-                        hour: "numeric",
-                      })}
-                </p>
-
-                <div className="mt-3 text-2xl">
-                  {getWeatherInfo(hour.weatherCode).icon}
-                </div>
-
-                <p className="mt-2 text-lg font-semibold">
-                  {Math.round(hour.temperature)}°
-                </p>
-              </div>
-            ))}
+                  <p className="hour-time">
+                    {index === 0 ? "Now" : formatForecastTime(hour.time)}
+                  </p>
+                  <span className="hour-icon" aria-hidden="true">{info.icon}</span>
+                  <p className="hour-temperature">{Math.round(hour.temperature)}°</p>
+                </article>
+              );
+            })}
           </div>
         </section>
 
-        {/* Daily Forecast */}
-        <section className="mt-12">
-          <h3 className="text-sm font-semibold uppercase tracking-wider text-slate-500">
-            7-day forecast
-          </h3>
+        <section className="forecast-section weekly-section" aria-labelledby="weekly-heading">
+          <div className="section-heading">
+            <div>
+              <p className="eyebrow">The week ahead</p>
+              <h2 id="weekly-heading">7-day forecast</h2>
+            </div>
+          </div>
+          <div className="daily-list">
+            {dailyForecast.map((day, index) => {
+              const info = getWeatherInfo(day.weatherCode);
+              const rangeStart =
+                ((day.minTemperature - weekLow) / weekTemperatureRange) * 100;
+              const rangeWidth = Math.max(
+                ((day.maxTemperature - day.minTemperature) /
+                  weekTemperatureRange) *
+                  100,
+                4,
+              );
 
-          <div className="mt-4 divide-y divide-slate-100">
-            {dailyForecast.map((day: DailyForecastItem) => (
-              <div
-                key={day.date}
-                className="flex items-center justify-between py-4"
-              >
-                <span className="w-28 font-medium">
-                  {formatForecastDate(day.date)}
-                </span>
-
-                <div className="flex items-center gap-2">
-                  <span>{getWeatherInfo(day.weatherCode).icon}</span>
-
-                  <span>{getWeatherInfo(day.weatherCode).description}</span>
-                </div>
-
-                <span className="text-slate-500">
-                  {Math.round(day.minTemperature)}°
-                </span>
-
-                <span className="font-semibold">
-                  {Math.round(day.maxTemperature)}°
-                </span>
-              </div>
-            ))}
+              return (
+                <article className="daily-row" key={day.date}>
+                  <span className="daily-day">
+                    {index === 0 ? "Today" : formatForecastDate(day.date)}
+                  </span>
+                  <span className="daily-condition">
+                    <span aria-hidden="true">{info.icon}</span>
+                    <span>{info.description}</span>
+                  </span>
+                  <span className="daily-low">{Math.round(day.minTemperature)}°</span>
+                  <span className="temperature-range" aria-label="Temperature range">
+                    <span className="range-track">
+                      <span
+                        className="range-fill"
+                        style={{
+                          left: `${rangeStart}%`,
+                          width: `${rangeWidth}%`,
+                        }}
+                      />
+                    </span>
+                  </span>
+                  <strong className="daily-high">{Math.round(day.maxTemperature)}°</strong>
+                </article>
+              );
+            })}
           </div>
         </section>
+
+        <footer className="site-footer">
+          <span>Weather for wherever you are.</span>
+          <span>Powered by Open-Meteo</span>
+        </footer>
       </div>
     </main>
   );
